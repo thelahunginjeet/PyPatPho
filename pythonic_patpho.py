@@ -1,3 +1,131 @@
+import pickle
+from numpy import array
+
+class FeatPatPho(object):
+
+    def __init__(self):
+        """
+        PatPho-like encoding of phonetic forms to vectors.  Preserves the slot
+        (CCCVVVCCC) system of Li and MacWhinney but makes the following changes:
+
+            1. Extends the number of syallables to 9 (covers all words in F&K)
+
+            2. Abandons CELEX and uses one-letter phone codes from the English
+               Lexicon Projec; the package is supplemented with between-alphabet
+               translators to allow the use of multiple sets of phonemic transcriptions.
+
+            3. Dumps the 3-dimensional floating point codes in favor of 29 element
+               vectors of binary phonetic features.
+
+            4. Reads the phone->vec codes from a supplied pickle rather than
+               hand-coding them into the function, so features can be easily
+               replaced without editing the pattern producing code.
+
+        The original PatPho system is described in:
+
+            Li, P., & MacWhinney, B. (2002). PatPho: A phonological pattern
+            generator for neural networks. Behavior Research Methods,
+            Instruments, & Computers, 34(3), 408-415.
+        """
+        self.syllabic_grid = None
+        self.idx = None
+        self.init_syllabic_grid_and_index()
+
+        self.current_phonemes = None
+
+        # list of ELP vowels
+        self.vowels = {"A","a","O","o","@","V","E","e","U","u","I","i","!","0","Y","j"}
+
+        # map phonemes to their vector representations
+        # will be initialized in self.get_phon_vectors()
+        # either with binary or real-valued vectors
+        self.phonemes = None
+
+        # read in the phone vectors
+        self.phon_vecs = pickle.load(open('./resources/elp-phoneme-features.pydb','rb'))
+        # supplement with slot blanks (V/C)
+        self.phon_vecs["VO"] = tuple([0 for x in self.phon_vecs['j']])
+        self.phon_vecs["CO"] = self.phon_vecs["VO"]
+
+
+    def init_syllabic_grid_and_index(self):
+        """ initialize 9-syllable consonant-vowel (CO-VO) grid """
+        self.idx = 0
+        self.syllabic_grid = ['CO', 'CO', 'CO', 'VO', 'VO', 'CO', 'CO', 'CO', 'VO', 'VO', 'CO', 'CO', 'CO', 'VO', 'VO',
+                              'CO', 'CO', 'CO', 'VO', 'VO', 'CO', 'CO', 'CO', 'VO', 'VO', 'CO', 'CO', 'CO', 'VO', 'VO',
+                              'CO', 'CO', 'CO', 'VO', 'VO', 'CO', 'CO', 'CO', 'VO', 'VO', 'CO', 'CO', 'CO', 'VO', 'VO',
+                              'CO', 'CO', 'CO']
+
+    def index_to_next_vowel(self):
+        """ increment self.idx to next empty vowel postion in syllabic grid """
+        self.idx += self.syllabic_grid[self.idx:].index("VO")
+
+    def index_to_next_consonant(self):
+        """ increment self.idx to next empty consonant postion
+        in syllabic grid """
+        self.idx += self.syllabic_grid[self.idx:].index("CO")
+
+    def insert_phoneme_into_grid(self, phoneme):
+        """" place 'phoneme' on the syllabic grid """
+        if phoneme in self.vowels:
+            try:
+                self.index_to_next_vowel()
+                self.syllabic_grid[self.idx] = phoneme
+            except ValueError:
+                print('Word is too long: %s' % self.current_phonemes)
+
+        elif phoneme in self.phonemes:
+            try:
+                self.index_to_next_consonant()
+                self.syllabic_grid[self.idx] = phoneme
+            except ValueError:
+                print('Word is too long: %s' % self.current_phonemes)
+
+        else:
+            raise TypeError('Unknown phoneme '
+                            'in %s (%s chars long): %s' %
+                            (self.current_phonemes,
+                             len(self.current_phonemes), phoneme))
+
+    def get_phon_vector(self, phonemes, left=True):
+        """
+        Convert the phoneme sequence to a vector representation.
+
+        phonemes: string, required
+            phonetic form in ELP single-letter encoding
+
+        left: boolean, optional
+            if True, place phonemes on consonant-vowel grid starting from the left
+            (left-justified format), which emphasizes similarities of word-vectors at
+            the beginning; else, place phonemes on the grid going from right to left,
+            which emphasizes similarities of word endings
+        """
+        self.phonemes = self.phon_vecs
+
+        # for debugging
+        self.current_phonemes = phonemes
+
+        if not left:
+            phonemes = phonemes[::-1]
+
+        # go through the phonemes and insert them into the metrical grid
+        for p in phonemes:
+            self.insert_phoneme_into_grid(p)
+
+        # convert syllabic grid to vector
+        if not left:
+            self.syllabic_grid = self.syllabic_grid[::-1]
+
+        phon_vector = []
+        for i in self.syllabic_grid:
+            phon_vector.extend(self.phonemes[i])
+
+        # reset syllabic grid
+        self.init_syllabic_grid_and_index()
+
+        return array(phon_vector)
+
+
 class PatPho(object):
 
     def __init__(self):
